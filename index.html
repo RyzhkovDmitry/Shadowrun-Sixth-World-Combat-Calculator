@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadowrun 6E Combat Calc</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- Logic Engine ---
+        const CombatEngine = {
+            calculateAdvantageEdge: (attackerAR, defenderDR) => {
+                if (attackerAR - defenderDR >= 4) return { attacker: true, defender: false };
+                if (defenderDR - attackerAR >= 4) return { attacker: false, defender: true };
+                return { attacker: false, defender: false };
+            },
+            checkGlitch: (dicePool, onesRolled, hits) => {
+        // Исправлено: >= вместо >
+        const isGlitch = dicePool > 0 && onesRolled >= (dicePool / 2);
+        const isCritical = isGlitch && (hits === 0);
+        return { isGlitch, isCritical };
+    },
+
+    resolveAttack: (a, d) => {
+        const attackerGlitches = CombatEngine.checkGlitch(a.pool, a.ones, a.hits);
+        const defenderGlitches = CombatEngine.checkGlitch(d.pool, d.ones, d.hits);
+        
+        // Гарантируем, что работаем с числами
+        const aHits = Number(a.hits) || 0;
+        const dHits = Number(d.hits) || 0;
+        
+        const isHit = aHits >= dHits;
+        const netHits = isHit ? (aHits - dHits) : 0;
+        // Базовый урон + Net Hits
+        const potentialDamage = isHit ? (Number(a.baseDamage) || 0) + netHits : 0;
+
+        return {
+            isHit,
+            netHits,
+            potentialDamage,
+            attackerGlitch: attackerGlitches.isGlitch,
+            attackerCriticalGlitch: attackerGlitches.isCritical,
+            defenderGlitch: defenderGlitches.isGlitch,
+            defenderCriticalGlitch: defenderGlitches.isCritical
+        };
+    }
+};
+
+        // --- Components ---
+        const InputGroup = ({ label, value, onChange, type = "number", placeholder = "0" }) => (
+            <div className="mb-3">
+                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1">{label}</label>
+                <input 
+                    type={type}
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder={placeholder}
+                    className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+            </div>
+        );
+
+        const App = () => {
+            // State
+            const [attacker, setAttacker] = useState({ ar: '', baseDamage: '', pool: '', hits: '', ones: '' });
+            const [defender, setDefender] = useState({ dr: '', body: '', pool: '', hits: '', ones: '' });
+            const [soakHits, setSoakHits] = useState('');
+            const [result, setResult] = useState(null);
+            const [finalDamage, setFinalDamage] = useState(null);
+
+            // Edge Calculation
+            const advantage = useMemo(() => {
+                const ar = parseInt(attacker.ar) || 0;
+                const dr = parseInt(defender.dr) || 0;
+                if (ar > 0 && dr > 0) return CombatEngine.calculateAdvantageEdge(ar, dr);
+                return null;
+            }, [attacker.ar, defender.dr]);
+
+            const handleCalculate = () => {
+                const res = CombatEngine.resolveAttack(
+                    { pool: parseInt(attacker.pool) || 1, hits: parseInt(attacker.hits) || 0, ones: parseInt(attacker.ones) || 0, baseDamage: attacker.baseDamage || 0 },
+                    { pool: parseInt(defender.pool) || 1, hits: parseInt(defender.hits) || 0, ones: parseInt(defender.ones) || 0 }
+                );
+                setResult(res);
+                setFinalDamage(null);
+                setSoakHits('');
+            };
+
+            const handleSoak = () => {
+                if (!result) return;
+                const final = Math.max(0, result.potentialDamage - (parseInt(soakHits) || 0));
+                setFinalDamage(final);
+            };
+
+            const handleReset = () => {
+    setAttacker({ ar: '', baseDamage: '', pool: '', hits: '', ones: '' });
+    setDefender({ dr: '', body: '', pool: '', hits: '', ones: '' });
+    setResult(null);
+    setFinalDamage(null);
+    setSoakHits('');
+};
+
+            return (
+                <div className="max-w-6xl mx-auto p-4 md:p-8">
+                    <header className="mb-8 text-center">
+                        <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500 italic uppercase">
+                            ShadowRun Combat Tracker
+                        </h1>
+                        <p className="text-slate-500 text-sm mt-2">Веб-версия калькулятора боя 6-й редакции</p>
+                    </header>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        
+                        {/* Атакующий */}
+                        <div className="glass p-6 rounded-2xl">
+                            <h2 className="text-xl font-bold mb-4 text-blue-400 border-b border-blue-900/50 pb-2 flex items-center">
+                                <span className="mr-2">🎯</span> Атакующий
+                            </h2>
+                            <div className="grid grid-cols-2 gap-3">
+                                <InputGroup label="AR" value={attacker.ar} onChange={(v) => setAttacker({...attacker, ar: v})} />
+                                <InputGroup label="Баз. Урон" value={attacker.baseDamage} onChange={(v) => setAttacker({...attacker, baseDamage: v})} />
+                            </div>
+                            <div className="mt-4 p-4 bg-slate-900/50 rounded-xl">
+                                <h3 className="text-xs font-bold text-slate-500 mb-3 uppercase">Результаты броска</h3>
+                                <InputGroup label="Пул кубов" value={attacker.pool} onChange={(v) => setAttacker({...attacker, pool: v})} />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <InputGroup label="Успехи (5-6)" value={attacker.hits} onChange={(v) => setAttacker({...attacker, hits: v})} />
+                                    <InputGroup label="Единицы (1)" value={attacker.ones} onChange={(v) => setAttacker({...attacker, ones: v})} />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Результаты (Центр) */}
+                        <div className="flex flex-col space-y-6">
+                            <div className="glass p-6 rounded-2xl text-center">
+                                <h2 className="text-lg font-bold mb-4 uppercase tracking-wider text-slate-300">Итог боя</h2>
+                                
+                                {/* Edge Display */}
+                                <div className="mb-6 min-h-[60px] flex items-center justify-center">
+                                    {advantage ? (
+                                        advantage.attacker ? (
+                                            <div className="bg-orange-500/20 text-orange-400 p-3 rounded-lg border border-orange-500/30 text-sm animate-pulse">
+                                                ⭐ Edge атакующему (+4 AR/DR)
+                                            </div>
+                                        ) : advantage.defender ? (
+                                            <div className="bg-blue-500/20 text-blue-400 p-3 rounded-lg border border-blue-500/30 text-sm animate-pulse">
+                                                🛡️ Edge защитнику (+4 DR/AR)
+                                            </div>
+                                        ) : (
+                                            <div className="text-slate-500 text-xs italic">Нет преимущества по рейтингам</div>
+                                        )
+                                    ) : (
+                                        <div className="text-slate-600 text-xs">Введите AR и DR для Edge</div>
+                                    )}
+                                </div>
+
+                        
+
+                                <button 
+    onClick={handleCalculate}
+    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-xl transition-all shadow-lg shadow-blue-900/20 active:scale-95 uppercase"
+>
+    Рассчитать ход
+</button>
+
+{/* Кнопка сброса */}
+<button 
+    onClick={handleReset}
+    className="w-full mt-2 text-slate-500 hover:text-slate-300 text-xs uppercase tracking-widest transition-colors py-2"
+>
+    Сбросить данные
+</button>
+
+                                {result && (
+                                    <div className="mt-6 space-y-4 animate-in fade-in zoom-in duration-300">
+                                        <div className={`text-2xl font-black italic uppercase ${result.isHit ? 'text-green-400' : 'text-red-500'}`}>
+                                            {result.isHit ? 'Попадание!' : 'Промах'}
+                                        </div>
+                                        
+                                        <div className="text-left text-sm space-y-1 bg-black/20 p-3 rounded-lg">
+                                            <div>Net Hits: <span className="text-white font-bold">{result.netHits}</span></div>
+                                            <div>Предв. урон: <span className="text-white font-bold">{result.potentialDamage}</span></div>
+                                        </div>
+
+                                        {(result.attackerGlitch || result.defenderGlitch) && (
+                                            <div className="text-orange-400 text-xs font-bold uppercase space-y-1">
+                                                {result.attackerGlitch && <div>⚠️ Сбой Атаки {result.attackerCriticalGlitch && '(КРИТ!)'}</div>}
+                                                {result.defenderGlitch && <div>⚠️ Сбой Защиты {result.defenderCriticalGlitch && '(КРИТ!)'}</div>}
+                                            </div>
+                                        )}
+
+                                        {result.isHit && (
+                                            <div className="pt-4 border-t border-slate-700">
+                                                <InputGroup label="Успехи SOAK (Body)" value={soakHits} onChange={setSoakHits} />
+                                                <button 
+                                                    onClick={handleSoak}
+                                                    className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg text-sm transition-colors"
+                                                >
+                                                    Применить Soak
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {finalDamage !== null && (
+                                <div className="glass p-6 rounded-2xl text-center border-red-500/50 animate-bounce">
+                                    <div className="text-6xl font-black text-red-500">{finalDamage}</div>
+                                    <div className="text-xs font-bold text-red-400 uppercase tracking-widest mt-2">Итоговый урон</div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Защищающийся */}
+                        <div className="glass p-6 rounded-2xl">
+                            <h2 className="text-xl font-bold mb-4 text-purple-400 border-b border-purple-900/50 pb-2 flex items-center">
+                                <span className="mr-2">🛡️</span> Защищающийся
+                            </h2>
+                            <div className="grid grid-cols-2 gap-3">
+                                <InputGroup label="DR" value={defender.dr} onChange={(v) => setDefender({...defender, dr: v})} />
+                                <InputGroup label="Body (Soak)" value={defender.body} onChange={(v) => setDefender({...defender, body: v})} />
+                            </div>
+                            <div className="mt-4 p-4 bg-slate-900/50 rounded-xl">
+                                <h3 className="text-xs font-bold text-slate-500 mb-3 uppercase">Результаты броска</h3>
+                                <InputGroup label="Пул кубов" value={defender.pool} onChange={(v) => setDefender({...defender, pool: v})} />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <InputGroup label="Успехи (5-6)" value={defender.hits} onChange={(v) => setDefender({...defender, hits: v})} />
+                                    <InputGroup label="Единицы (1)" value={defender.ones} onChange={(v) => setDefender({...defender, ones: v})} />
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    
+                    <footer className="mt-12 text-center text-slate-600 text-xs">
+                        Shadowrun Sixth World Combat Calculator • Standalone Web App
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
